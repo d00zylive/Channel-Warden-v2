@@ -50,13 +50,15 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
                      """, (exp, messageCount, userId, guildId))
     connection.commit()
 
+
+
 async def level_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     cursor.execute("""
                    SELECT name, id
                    FROM Levels
-                   WHERE serverId = ?
-                   """, (interaction.guild.id,))
-    return [app_commands.Choice(name=level[0], value=level[1]) for level in cursor.fetchall()]
+                   WHERE serverId = ? AND name LIKE ?
+                   """, (interaction.guild.id, ("%"+current+"%")))
+    return [app_commands.Choice(name=f"{level[0]} ({level[1]})", value=level[1]) for level in cursor.fetchall()]
 
 
 class Level(app_commands.Group):
