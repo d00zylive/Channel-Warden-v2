@@ -50,6 +50,15 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
                      """, (exp, messageCount, userId, guildId))
     connection.commit()
 
+async def level_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    cursor.execute("""
+                   SELECT name, id
+                   FROM Levels
+                   WHERE serverId = ?
+                   """, (interaction.guild.id,))
+    return [app_commands.Choice(name=level[0], value=level[1]) for level in cursor.fetchall()]
+
+
 class Level(app_commands.Group):
     def __init__(self):
         super().__init__(name="level", description="Commands related to leveling")
@@ -69,6 +78,7 @@ class Level(app_commands.Group):
     @app_commands.command(name="delete", description="Delete a level")
     @app_commands.describe(level_id="The ID of the level to delete")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.autocomplete(level_id=level_autocomplete)
     async def delete(self, interaction: discord.Interaction, level_id: int):
         levelId = level_id
 
@@ -94,6 +104,7 @@ class Level(app_commands.Group):
     @app_commands.command(name="edit", description="Edit a level")
     @app_commands.describe(level_id="The ID of the level to edit", name="The new name of the level", exp_req="The new experience required to reach this level", role_id="The new role ID to assign at this level", message="The new message to send when reaching this level")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.autocomplete(level_id=level_autocomplete)
     async def edit(self, interaction: discord.Interaction, level_id: int, name: str = None, exp_req: int = None, role_id: int = None, message: str = None):
         levelId, expReq, roleId = level_id, exp_req, role_id
 
