@@ -1,2 +1,4 @@
 ChannelWarden.db
+ChannelWarden.db-journal
 .env
+.venv
