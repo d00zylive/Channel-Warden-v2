@@ -8,7 +8,8 @@ intents = discord.Intents.default()
 intents.members = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
-TOKEN: str = decouple.config("TOKEN")
+TOKEN: str|bool = decouple.config("TOKEN")
+assert isinstance(TOKEN, str), "Invalid token"
 
 connection = sqlite3.connect('ChannelWarden.db')
 cursor = connection.cursor()
@@ -53,7 +54,7 @@ cursor.execute("""
 connection.commit()
 
 async def CalibrateLevels(userId: int, guildId: int):
-    guild: discord.Guild = client.get_guild(guildId)
+    guild: discord.Guild|None = client.get_guild(guildId)
     assert guild is not None, "Guild not found"
     member = guild.get_member(userId)
     assert member is not None, "Member not found"
@@ -70,8 +71,10 @@ async def CalibrateLevels(userId: int, guildId: int):
                    FROM Levels
                    WHERE serverId = ?;
                    """, (guildId,))
-    levels = cursor.fetchall()
+    levels: list[list[int]] = cursor.fetchall()
+    
     for level in levels:
+        assert len(level) == 2 and isinstance(level[0], int) and isinstance(level[1], int), "Level invalid"
         levelId, expReq = level
         
         cursor.execute("""
@@ -82,8 +85,8 @@ async def CalibrateLevels(userId: int, guildId: int):
                             LIMIT 1
                         );
                         """, (memberId, levelId,))
-        if not cursor.fetchone()[0]:
-            if expReq <= exp:
+        if not cursor.fetchone()[0]: # Check if member doesn't already have the level
+            if exp >= expReq:
                 cursor.execute("""
                                INSERT INTO MemberLevels (memberId, levelId)
                                VALUES (?, ?)
@@ -106,23 +109,18 @@ async def CalibrateLevels(userId: int, guildId: int):
                                """, (guildId,))
                 channelId = cursor.fetchone()[0]
                 if channelId != 0:
-                    channel: discord.TextChannel = client.get_channel(channelId)
+                    channel: discord.abc.GuildChannel|discord.Thread|discord.abc.PrivateChannel|None = client.get_channel(channelId)
                     assert channel is not None, "Channel not found"
+                    assert isinstance(channel, discord.TextChannel), "Channel of wrong type"
                     await channel.send(message.replace("{{user}}", f"<@{userId}>"))
                 
                 if roleId != 0:
-                    await member.add_roles(guild.get_role(roleId))
-                
-        else:
-            if expReq > exp:
-                pass
-                
-        
-        
-    
+                    role: discord.Role|None = guild.get_role(roleId)
+                    assert role is not None, "Role not found"
+                    await member.add_roles(role)
 
 async def CalibrateMember(userId: int, guildId: int) -> None:
-    guild: discord.Guild = client.get_guild(guildId)
+    guild: discord.Guild|None = client.get_guild(guildId)
     assert guild is not None, "Guild not found"
     member = guild.get_member(userId)
     assert member is not None, "Member not found"
@@ -151,7 +149,9 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
         connection.commit()
 
     # gives experience for every day someone has been in the server
-    exp = (datetime.datetime.now(datetime.timezone.utc)-member.joined_at).days*dayMult
+    joinDate: datetime.datetime|None = member.joined_at
+    assert joinDate is not None, "Member join date not found"
+    exp = (datetime.datetime.now(datetime.timezone.utc)-joinDate).days*dayMult
     
     # sets the message count to the amount of messages sent in the last 1000 messages of every text channel in the the server if messageCount is 0
     cursor.execute("""
@@ -166,7 +166,7 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
                                 if type(channel) == discord.channel.TextChannel
                                 and channel.permissions_for(guild.me).read_messages
                                 and channel.permissions_for(guild.me).read_message_history
-                                    async for message in channel.history(limit=1000)
+                                    async for message in channel.history(limit=10000)
                                         if message.author.id == userId
                             ])
         
@@ -191,18 +191,22 @@ async def CalibrateServer(guild: discord.Guild) -> None:
         sendMessage = True
     members = [member.id for member in guild.members if not member.bot]
     for i, member in enumerate(members):
-        if sendMessage: await message.edit(content=f"Setting everything up for you\n{i}/{len(members)} users calibrated, currently calibrating <@{member}>")
+        if sendMessage:
+            await message.edit(content=f"Setting everything up for you\n{i}/{len(members)} users calibrated, currently calibrating <@{member}>")
         await CalibrateMember(userId=member, guildId=guild.id)
-    if sendMessage: await message.edit(content=f"Finished setting everything up for you! {len(members)}/{len(members)} users have been calibrated")
+    if sendMessage:
+        await message.edit(content=f"Finished setting everything up for you! {len(members)}/{len(members)} users have been calibrated")
 
 
 
 async def level_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    guild: discord.Guild|None = interaction.guild
+    assert guild is not None, "Guild not found"
     cursor.execute("""
                    SELECT name, id
                    FROM Levels
                    WHERE serverId = ? AND name LIKE ?
-                   """, (interaction.guild.id, ("%"+current+"%")))
+                   """, (guild.id, ("%"+current+"%")))
     return [app_commands.Choice(name=f"{level[0]} ({level[1]})", value=level[1]) for level in cursor.fetchall()]
 
 
@@ -215,10 +219,14 @@ class Level(app_commands.Group):
     @app_commands.checks.has_permissions(administrator=True)
     async def create(self, interaction: discord.Interaction, name: str, exp_req: int, role_id: int = 0, message: str = ""):
         expReq, roleId = exp_req, role_id
+        
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
         cursor.execute("""
                        INSERT INTO Levels (serverId, name, expReq, roleId, message)
                        VALUES (?, ?, ?, ?, ?);
-                       """, (interaction.guild.id, name, expReq, roleId, message,))
+                       """, (guild.id, name, expReq, roleId, message,))
         connection.commit()
         await interaction.response.send_message(f"Level {name} created successfully")
 
@@ -228,6 +236,9 @@ class Level(app_commands.Group):
     @app_commands.autocomplete(level_id=level_autocomplete)
     async def delete(self, interaction: discord.Interaction, level_id: int):
         levelId = level_id
+        
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
 
         cursor.execute("""
                SELECT EXISTS(
@@ -235,14 +246,14 @@ class Level(app_commands.Group):
                FROM Levels
                WHERE id = ? AND serverId = ?
                LIMIT 1);
-               """, (levelId, interaction.guild.id))
+               """, (levelId, guild.id))
         exists = cursor.fetchone()[0]
 
         if exists:
             cursor.execute("""
                        DELETE FROM Levels
                        WHERE id = ? AND serverId = ?;
-                       """, (levelId, interaction.guild.id))
+                       """, (levelId, guild.id))
             connection.commit()
             await interaction.response.send_message(f"Level {levelId} deleted successfully")
         else:
@@ -252,8 +263,11 @@ class Level(app_commands.Group):
     @app_commands.describe(level_id="The ID of the level to edit", name="The new name of the level", exp_req="The new experience required to reach this level", role_id="The new role ID to assign at this level", message="The new message to send when reaching this level")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.autocomplete(level_id=level_autocomplete)
-    async def edit(self, interaction: discord.Interaction, level_id: int, name: str = None, exp_req: int = None, role_id: int = None, message: str = None):
+    async def edit(self, interaction: discord.Interaction, level_id: int, name: str|None = None, exp_req: int|None = None, role_id: int|None = None, message: str|None = None):
         levelId, expReq, roleId = level_id, exp_req, role_id
+        
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
 
         cursor.execute("""
                SELECT EXISTS(
@@ -261,7 +275,7 @@ class Level(app_commands.Group):
                FROM Levels
                WHERE id = ? AND serverId = ?
                LIMIT 1);
-               """, (levelId, interaction.guild.id))
+               """, (levelId, guild.id))
         exists = cursor.fetchone()[0]
 
         if exists:
@@ -269,7 +283,7 @@ class Level(app_commands.Group):
                            UPDATE Levels
                            SET name=coalesce(?,name), expReq=coalesce(?,expReq), roleId=coalesce(?,roleId), message=coalesce(?,message)
                            WHERE id = ? AND serverId = ?;
-                           """, (name, expReq, roleId, message, levelId, interaction.guild.id))
+                           """, (name, expReq, roleId, message, levelId, guild.id))
             connection.commit()
             await interaction.response.send_message(f"Level {levelId} has been edited successfully")
         else:
@@ -278,11 +292,14 @@ class Level(app_commands.Group):
     @app_commands.command(name="list", description="List all levels")
     @app_commands.checks.has_permissions(administrator=True)
     async def list(self, interaction: discord.Interaction):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
         cursor.execute("""
                        SELECT ALL *
                        FROM Levels
                        WHERE serverId = ?
-                       """, (interaction.guild.id,))
+                       """, (guild.id,))
         levels = sorted(cursor.fetchall(), key=lambda row: row[3]) # sort based on experience requirement (expReq)
         msg = ""
         for level in levels:
@@ -301,8 +318,11 @@ class Calibrate(app_commands.Group):
     @app_commands.describe(member="The member you want to calibrate")
     @app_commands.checks.has_permissions(administrator=True)
     async def member(self, interaction: discord.Interaction, member: discord.Member):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
         if not member.bot:
-            await CalibrateMember(userId=member.id, guildId=interaction.guild.id)
+            await CalibrateMember(userId=member.id, guildId=guild.id)
             await interaction.response.send_message("Calibrated member succesfully!")
         else:
             await interaction.response.send_message("ERROR: Member is a bot, could not calibrate")
@@ -310,7 +330,10 @@ class Calibrate(app_commands.Group):
     @app_commands.command(name="server")
     @app_commands.checks.has_permissions(administrator=True)
     async def server(self, interaction: discord.Interaction, status_msg: bool = True):
-        await CalibrateServer(guild=interaction.guild)
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        await CalibrateServer(guild=guild)
 
 tree.add_command(Calibrate())
 
@@ -326,13 +349,16 @@ async def on_guild_join(guild: discord.Guild):
             
 @client.event
 async def on_message(message: discord.Message):
+    guild: discord.Guild|None = message.guild
+    assert guild is not None, "Guild not found"
+    
     cursor.execute("""
                SELECT EXISTS(
                SELECT 1
                FROM Servers
                WHERE id = ?
                LIMIT 1);
-               """, (message.guild.id,))
+               """, (guild.id,))
     if cursor.fetchone()[0]: # Check if server is in database
         if not message.author.bot:
             cursor.execute("""
@@ -342,16 +368,16 @@ async def on_message(message: discord.Message):
                                WHERE userId = ? AND serverId = ?
                                LIMIT 1
                            );
-                           """, (message.author.id, message.guild.id,))
+                           """, (message.author.id, guild.id,))
             if cursor.fetchone()[0]: # Check if member is in database
                 cursor.execute("""
                                UPDATE Members
                                SET messageCount = messageCount + 1
                                WHERE userId = ? AND serverId = ?;
-                               """, (message.author.id, message.guild.id,))
-            await CalibrateMember(userId=message.author.id, guildId=message.guild.id)
+                               """, (message.author.id, guild.id,))
+            await CalibrateMember(userId=message.author.id, guildId=guild.id)
     else:
-        await CalibrateServer(guild=message.guild)
+        await CalibrateServer(guild=guild)
 
 @client.event
 async def on_ready():
@@ -359,3 +385,5 @@ async def on_ready():
     print("Ready!")
 
 client.run(TOKEN)
+
+#TODO: Config commands
