@@ -166,7 +166,7 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
                                 if type(channel) == discord.channel.TextChannel
                                 and channel.permissions_for(guild.me).read_messages
                                 and channel.permissions_for(guild.me).read_message_history
-                                    async for message in channel.history(limit=10000)
+                                    async for message in channel.history(limit=100000)
                                         if message.author.id == userId
                             ])
         
@@ -389,7 +389,7 @@ class ExpGain(app_commands.Group):
         super().__init__(name="expgain", description="Configurations related to experience gain parameters", parent=Config())
     
     @app_commands.command(name="daymult", description="Configurate how much exp a member should get for every day in the server")
-    @app_commands.describe(day_mult="The amount of exp a member should get for every day in the server")
+    @app_commands.describe(daymult="The amount of exp a member should get for every day in the server")
     @app_commands.checks.has_permissions(administrator=True)
     async def dayMult(self, interaction: discord.Interaction, daymult: float):
         guild: discord.Guild|None = interaction.guild
@@ -417,7 +417,7 @@ class ExpGain(app_commands.Group):
         await interaction.response.send_message(f"Message exp multiplier succesfully set to {messagemult}")
         
     @app_commands.command(name="wantedage", description="Configurate at what account age a member will start to gain exp")
-    @app_commands.describe(wanted_age="The acount age in days when they will start gaining exp")
+    @app_commands.describe(wantedage="The acount age in days when they will start gaining exp")
     @app_commands.checks.has_permissions(administrator=True)
     async def wantedAge(self, interaction: discord.Interaction, wantedage: float):
         guild: discord.Guild|None = interaction.guild
