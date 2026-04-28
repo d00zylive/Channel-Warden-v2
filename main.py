@@ -357,6 +357,20 @@ class Config(app_commands.Group):
                         WHERE Id=?
                         """, (channel.id,guild.id,))
         await interaction.response.send_message(f"Notification channel succesfully set to <#{channel.id}>")
+        
+    @app_commands.command(name="silent", description="Configurate whether notifications should ping users")
+    @app_commands.describe(silent="Silence notification pings?")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def silent(self, interaction: discord.Interaction, silent: bool):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET silent=?
+                        WHERE Id=?
+                        """, (int(silent),guild.id,))
+        await interaction.response.send_message(f"Silent succesfully set to {silent}")
             
 
 tree.add_command(Config())
