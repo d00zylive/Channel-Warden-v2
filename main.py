@@ -174,7 +174,8 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
     exp += messageCount*messageMult
     
     # gives or takes experience for the time they have been on discord 
-    exp += (accountAgeMax-(accountAgeMax)/((((datetime.datetime.now(datetime.timezone.utc)-member.created_at)).days+1)/(wantedAge+1)))
+    accountAge:int = ((datetime.datetime.now(datetime.timezone.utc)-member.created_at)).days
+    exp += accountAgeMax-accountAgeMax*(wantedAge+1)/(accountAge+1)
 
     cursor.execute("""UPDATE Members
                      SET exp = ?, messageCount = ?
@@ -349,6 +350,7 @@ class Calibrate(app_commands.Group):
 
 tree.add_command(Calibrate())
 
+
 class Config(app_commands.Group):
     def __init__(self):
         super().__init__(name="config", description="Commands for configurating this bot")
@@ -382,7 +384,68 @@ class Config(app_commands.Group):
         await interaction.response.send_message(f"Silent succesfully set to {silent}")
             
 
-tree.add_command(Config())
+class ExpGain(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="expgain", description="Configurations related to experience gain parameters", parent=Config())
+    
+    @app_commands.command(name="daymult", description="Configurate how much exp a member should get for every day in the server")
+    @app_commands.describe(day_mult="The amount of exp a member should get for every day in the server")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dayMult(self, interaction: discord.Interaction, daymult: float):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET dayMult=?
+                        WHERE Id=?
+                        """, (daymult,guild.id,))
+        await interaction.response.send_message(f"Daily exp multiplier succesfully set to {daymult}")
+        
+    @app_commands.command(name="messagemult", description="Configurate how much exp a member should get for every message they send")
+    @app_commands.describe(messagemult="The amount of exp a member should get for every message they send")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def messageMult(self, interaction: discord.Interaction, messagemult: float):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET messageMult=?
+                        WHERE Id=?
+                        """, (messagemult,guild.id,))
+        await interaction.response.send_message(f"Message exp multiplier succesfully set to {messagemult}")
+        
+    @app_commands.command(name="wantedage", description="Configurate at what account age a member will start to gain exp")
+    @app_commands.describe(wanted_age="The acount age in days when they will start gaining exp")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def wantedAge(self, interaction: discord.Interaction, wantedage: float):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET wantedAge=?
+                        WHERE Id=?
+                        """, (wantedage,guild.id,))
+        await interaction.response.send_message(f"Wanted age succesfully set to {wantedage}")
+        
+    @app_commands.command(name="accountagemax", description="Configurate the maximum amount of exp a member can gain from account age")
+    @app_commands.describe(accountagemax="The maximum amount of exp a member can gain from account age")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def accountAgeMax(self, interaction: discord.Interaction, accountagemax: float):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET accountAgeMax=?
+                        WHERE Id=?
+                        """, (accountagemax,guild.id,))
+        await interaction.response.send_message(f"Maximum exp account age exp gain succesfully set to {accountagemax}")
+    
+
+tree.add_command(ExpGain())
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
@@ -432,6 +495,3 @@ async def on_ready():
     print("Ready!")
 
 client.run(TOKEN)
-
-#TODO: Config commands
-#TODO: Status message option calibrate commands
