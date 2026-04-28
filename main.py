@@ -184,11 +184,16 @@ async def CalibrateMember(userId: int, guildId: int) -> None:
     
     await CalibrateLevels(userId=userId, guildId=guildId)
 
-async def CalibrateServer(guild: discord.Guild) -> None:
+async def CalibrateServer(guild: discord.Guild, statusMessage:bool|None = None, channel:discord.TextChannel|None = None) -> None:
     sendMessage = False
-    if guild.system_channel != None and guild.system_channel_flags.join_notifications:
-        message = await guild.system_channel.send("Setting everything up for you")
+    if (guild.system_channel is not None or channel is not None) and (statusMessage or guild.system_channel_flags.join_notifications and not statusMessage):
         sendMessage = True
+        if guild.system_channel is not None:
+            message = await guild.system_channel.send("Setting everything up for you")
+        elif channel is not None:
+            message = await channel.send("Setting everything up for you")
+        else:
+            sendMessage = False
     members = [member.id for member in guild.members if not member.bot]
     for i, member in enumerate(members):
         if sendMessage:
@@ -330,12 +335,16 @@ class Calibrate(app_commands.Group):
         
     @app_commands.command(name="server", description="Calibrate all members' exp and levels")
     @app_commands.checks.has_permissions(administrator=True)
-    async def server(self, interaction: discord.Interaction, status_msg: bool = True):
+    async def server(self, interaction: discord.Interaction, status_message: bool = True):
         guild: discord.Guild|None = interaction.guild
         assert guild is not None, "Guild not found"
         
+        channel: discord.abc.GuildChannel|discord.Thread|discord.abc.PrivateChannel|None = interaction.channel
+        assert channel is not None, "Channel not found"
+        assert isinstance(channel, discord.TextChannel), "Channel of wrong type"
+        
         await interaction.response.defer()
-        await CalibrateServer(guild=guild)
+        await CalibrateServer(guild=guild, statusMessage=status_message, channel=channel)
         await interaction.response.send_message("Server calibrated succesfully!")
 
 tree.add_command(Calibrate())
