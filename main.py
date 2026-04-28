@@ -246,14 +246,14 @@ class Level(app_commands.Group):
                FROM Levels
                WHERE id = ? AND serverId = ?
                LIMIT 1);
-               """, (levelId, guild.id))
+               """, (levelId, guild.id,))
         exists = cursor.fetchone()[0]
 
         if exists:
             cursor.execute("""
                        DELETE FROM Levels
                        WHERE id = ? AND serverId = ?;
-                       """, (levelId, guild.id))
+                       """, (levelId, guild.id,))
             connection.commit()
             await interaction.response.send_message(f"Level {levelId} deleted successfully")
         else:
@@ -283,7 +283,7 @@ class Level(app_commands.Group):
                            UPDATE Levels
                            SET name=coalesce(?,name), expReq=coalesce(?,expReq), roleId=coalesce(?,roleId), message=coalesce(?,message)
                            WHERE id = ? AND serverId = ?;
-                           """, (name, expReq, roleId, message, levelId, guild.id))
+                           """, (name, expReq, roleId, message, levelId, guild.id,))
             connection.commit()
             await interaction.response.send_message(f"Level {levelId} has been edited successfully")
         else:
@@ -322,20 +322,44 @@ class Calibrate(app_commands.Group):
         assert guild is not None, "Guild not found"
         
         if not member.bot:
+            await interaction.response.defer()
             await CalibrateMember(userId=member.id, guildId=guild.id)
             await interaction.response.send_message("Calibrated member succesfully!")
         else:
             await interaction.response.send_message("ERROR: Member is a bot, could not calibrate")
         
-    @app_commands.command(name="server")
+    @app_commands.command(name="server", description="Calibrate all members' exp and levels")
     @app_commands.checks.has_permissions(administrator=True)
     async def server(self, interaction: discord.Interaction, status_msg: bool = True):
         guild: discord.Guild|None = interaction.guild
         assert guild is not None, "Guild not found"
         
+        await interaction.response.defer()
         await CalibrateServer(guild=guild)
+        await interaction.response.send_message("Server calibrated succesfully!")
 
 tree.add_command(Calibrate())
+
+class Config(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="config", description="Commands for configurating this bot")
+        
+    @app_commands.command(name="channel", description="Configurate which channel gets notifications")
+    @app_commands.describe(channel="The channel notifications should be sent in")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        guild: discord.Guild|None = interaction.guild
+        assert guild is not None, "Guild not found"
+        
+        cursor.execute("""
+                        UPDATE Servers
+                        SET channel=?
+                        WHERE Id=?
+                        """, (channel.id,guild.id,))
+        await interaction.response.send_message(f"Notification channel succesfully set to <#{channel.id}>")
+            
+
+tree.add_command(Config())
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
@@ -387,3 +411,4 @@ async def on_ready():
 client.run(TOKEN)
 
 #TODO: Config commands
+#TODO: Status message option calibrate commands
